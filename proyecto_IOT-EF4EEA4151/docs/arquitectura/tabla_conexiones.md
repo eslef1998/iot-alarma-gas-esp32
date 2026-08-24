@@ -1,0 +1,2 @@
+[ Sensor MQ2 (Gas) ] --(Señal Analógica / GPIO34)--> [ ESP32 DevKit v1 ] --(I2C / GPIO21 y 22)--> [ Pantalla LCD 1602 ]
+                                                                           --(PWM / GPIO18)----------> [ Buzzer Piezoelectrico ]
