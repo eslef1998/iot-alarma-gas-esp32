@@ -97,4 +97,7 @@ proyecto_IOT-EF4EEA4151/
    ```bash
    pio run
    ```
-3. Ejecutar la simulación en Wokwi presionando F1 y seleccionando "Wokwi: Start Simulator".
+3. Ejecutar la simulación en Wokwi seleccionando "Wokwi: Start Simulator".
+   ```bash
+   
+   ```
