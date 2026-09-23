@@ -90,6 +90,9 @@ proyecto_IOT-EF4EEA4151/
 ## 6. Instrucciones de Compilación y Ejecución
 
 1. Clonar el repositorio y abrir la carpeta en Visual Studio Code.
+  ```bash
+   git clone https://github.com/eslef1998/iot-alarma-gas-esp32.git
+   ```
 2. Compilar el proyecto y descargar las librerías mediante la terminal:
    ```bash
    pio run
