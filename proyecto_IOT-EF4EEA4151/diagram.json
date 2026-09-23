@@ -9,14 +9,14 @@
     { "type": "wokwi-lcd1602", "id": "lcd", "top": -150, "left": 150, "attrs": { "pins": "i2c" } }
   ],
   "connections": [
-    [ "esp:GND.1", "mq2:GND", "black", [ "v0" ] ],
-    [ "esp:3V3", "mq2:VCC", "red", [ "v0" ] ],
-    [ "mq2:SIG", "esp:D34", "green", [ "v0" ] ],
-    [ "esp:GND.2", "buzzer:1", "black", [ "v0" ] ],
-    [ "esp:D25", "buzzer:2", "red", [ "v0" ] ],
-    [ "esp:GND.3", "lcd:GND", "black", [ "v0" ] ],
-    [ "esp:5V", "lcd:VCC", "red", [ "v0" ] ],
-    [ "esp:D21", "lcd:SDA", "blue", [ "v0" ] ],
-    [ "esp:D22", "lcd:SCL", "yellow", [ "v0" ] ]
+    [ "mq2:SIG", "esp:GPIO34", "green", [ "v0" ] ],
+    [ "mq2:VCC", "esp:3V3", "red", [ "v0" ] ],
+    [ "mq2:GND", "esp:GND", "black", [ "v0" ] ],
+    [ "buzzer:+", "esp:GPIO18", "red", [ "v0" ] ],
+    [ "buzzer:-", "esp:GND", "black", [ "v0" ] ],
+    [ "lcd:SDA", "esp:GPIO21", "blue", [ "v0" ] ],
+    [ "lcd:SCL", "esp:GPIO22", "yellow", [ "v0" ] ],
+    [ "lcd:VCC", "esp:VIN", "red", [ "v0" ] ],
+    [ "lcd:GND", "esp:GND", "black", [ "v0" ] ]
   ]
 }
