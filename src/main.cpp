@@ -4,34 +4,38 @@
 #include <ArduinoJson.h>
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
+#if __has_include("secrets.h")
+#include "secrets.h"
+#else
 #include "secrets.example.h"
+#endif
 
 // ==========================================
-// PARÁMETROS ASIGNADOS (ACTIVIDAD 1 Y 2)
+// PARÁMETROS ASIGNADOS (SECCIÓN 3.3 Y 3.4)
 // ==========================================
 const char* DEVICE_ID            = "IOT-EF4EEA4151";
 const char* VARIABLE_NAME        = "nivel analogico de gas";
 const char* UNIT_NAME            = "unidades ADC";
 
-const int   PIN_SENSOR_MQ2       = 36; // VP (ADC1_CH0) - Potenciómetro
-const int   PIN_BUZZER           = 25; // Actuador Alarma
+const int   PIN_SENSOR_MQ2       = 36;
+const int   PIN_BUZZER           = 25;
 
 const uint16_t UMBRAL_PRINCIPAL  = 2650;
-const uint16_t MARGEN_RETORNO    = 4;     // Histéresis: retorno a 2646 ADC
+const uint16_t MARGEN_RETORNO    = 4;
 const uint16_t UMBRAL_RETORNO    = UMBRAL_PRINCIPAL - MARGEN_RETORNO;
 
-const uint32_t INTERVALO_MUESTREO  = 1450;  // ms
-const uint32_t PERIODO_PUBLICACION = 18000; // ms
-const uint32_t INTERVALO_RECONEXION = 9000;  // ms
-const uint8_t  CONFIRMACIONES_REQ  = 6;     // Lecturas consecutivas
+const uint32_t INTERVALO_MUESTREO  = 1450;
+const uint32_t PERIODO_PUBLICACION = 18000;
+const uint32_t INTERVALO_RECONEXION = 9000;
+const uint8_t  CONFIRMACIONES_REQ  = 6;
 
-// Tópicos MQTT (Estrictamente en minúsculas)
 const char* TOPIC_TELEMETRY = "iot/ef4eea4151/telemetry";
 const char* TOPIC_COMMAND   = "iot/ef4eea4151/command";
 const char* TOPIC_STATUS    = "iot/ef4eea4151/status";
+const char* TOPIC_ALERT     = "iot/ef4eea4151/alert";
 
 // ==========================================
-// OBJETOS Y VARIABLES GLOBALES
+// OBJETOS Y VARIABLES
 // ==========================================
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 WiFiClient espClient;
@@ -42,17 +46,14 @@ uint32_t lastPublishTime        = 0;
 uint32_t lastReconnectAttempt   = 0;
 
 uint16_t currentReading         = 0;
-bool     validReading           = false;
-uint8_t  consecutiveHighCount   = 0; // Contador de lecturas consecutivas
+uint8_t  consecutiveHighCount   = 0;
 bool     showConfirmationComplete = false;
 uint32_t confirmationCompleteAt = 0;
 bool     buzzerActive           = false;
-
-String   currentMode            = "AUTO"; // Modos: AUTO, ARMAR, SILENCIAR
-bool     alarmState             = false;  // Estado de la alarma
+String   currentMode            = "AUTO";
+bool     alarmState             = false;
 uint32_t sequenceNumber         = 0;
 
-// Declaración de funciones
 void setupWiFiAndMQTT();
 void handleNetworkReconnection();
 void mqttCallback(char* topic, byte* payload, unsigned int length);
@@ -65,7 +66,6 @@ void setup() {
     Serial.begin(115200);
     pinMode(PIN_BUZZER, OUTPUT);
     digitalWrite(PIN_BUZZER, LOW);
-    buzzerActive = false;
 
     Wire.begin(21, 22);
     lcd.init();
@@ -78,20 +78,19 @@ void setup() {
 void loop() {
     uint32_t currentMillis = millis();
 
-    // 1. Control Local Resiliente (Lectura y Evaluación cada 1450 ms)
+    // 1. Muestreo Local (1450 ms)
     if (currentMillis - lastSampleTime >= INTERVALO_MUESTREO) {
         lastSampleTime = currentMillis;
         processLocalLogic();
         updateLCD();
     }
 
-    if (showConfirmationComplete &&
-        currentMillis - confirmationCompleteAt >= 1000) {
+    if (showConfirmationComplete && currentMillis - confirmationCompleteAt >= 1000) {
         showConfirmationComplete = false;
         updateLCD();
     }
 
-    // 2. Reconexión programada cada 9s; mqttClient.connect() es síncrona.
+    // 2. Reconexión MQTT (9s)
     if (!WiFi.isConnected() || !mqttClient.connected()) {
         if (currentMillis - lastReconnectAttempt >= INTERVALO_RECONEXION) {
             lastReconnectAttempt = currentMillis;
@@ -101,41 +100,30 @@ void loop() {
         mqttClient.loop();
     }
 
-    // 3. Publicación Periódica de Telemetría (Cada 18s)
+    // 3. Publicación (18s)
     if (currentMillis - lastPublishTime >= PERIODO_PUBLICACION) {
         lastPublishTime = currentMillis;
         publishTelemetry();
     }
 }
 
-// ==========================================
-// LÓGICA LOCAL Y EVALUACIÓN DE REGLAS
-// ==========================================
 void processLocalLogic() {
     int rawValue = analogRead(PIN_SENSOR_MQ2);
 
-    if (rawValue >= 0 && rawValue <= 4095) {
-        currentReading = rawValue;
-        validReading = true;
-    } else {
-        validReading = false;
-        Serial.println("[ERROR] Lectura fuera del rango admisible.");
+    if (rawValue < 0 || rawValue > 4095) {
+        Serial.println("[ERROR] Lectura fuera del rango.");
+        if(mqttClient.connected()){
+            mqttClient.publish(TOPIC_ALERT, "{\"error\":\"Dato no valido de referencia\"}");
+        }
         return;
     }
 
+    currentReading = rawValue;
+
     if (currentMode == "AUTO") {
         if (currentReading >= UMBRAL_PRINCIPAL) {
-            // Incrementa si aún no alcanza el límite
             if (consecutiveHighCount < CONFIRMACIONES_REQ) {
                 consecutiveHighCount++;
-                Serial.print("[CONFIRMACION] Lectura alta (");
-                Serial.print(currentReading);
-                Serial.print(" >= ");
-                Serial.print(UMBRAL_PRINCIPAL);
-                Serial.print("). Conteo: ");
-                Serial.print(consecutiveHighCount);
-                Serial.print("/");
-                Serial.println(CONFIRMACIONES_REQ);
             }
             if (consecutiveHighCount >= CONFIRMACIONES_REQ && !alarmState) {
                 alarmState = true;
@@ -143,20 +131,13 @@ void processLocalLogic() {
                 confirmationCompleteAt = millis();
             }
         } else {
-            if (consecutiveHighCount > 0) {
-                Serial.println("[CONTEO] Lectura < 2650. Racha interrumpida; conteo reiniciado.");
-            }
             consecutiveHighCount = 0;
-
-            // La histéresis conserva la alarma entre 2646 y 2649 ADC.
             if (alarmState && currentReading < UMBRAL_RETORNO) {
                 alarmState = false;
                 showConfirmationComplete = false;
-                Serial.println("[HISTERESIS] Lectura < 2646 ADC. Alarma desactivada.");
             }
         }
-    } 
-    else if (currentMode == "ARMAR") {
+    } else if (currentMode == "ARMAR") {
         alarmState = true;
     } else if (currentMode == "SILENCIAR") {
         alarmState = false;
@@ -167,13 +148,9 @@ void processLocalLogic() {
 
 void applyAlarmOutput() {
     if (buzzerActive == alarmState) return;
-
     buzzerActive = alarmState;
-    if (buzzerActive) {
-        tone(PIN_BUZZER, 2000);
-    } else {
-        noTone(PIN_BUZZER);
-    }
+    if (buzzerActive) tone(PIN_BUZZER, 2000);
+    else noTone(PIN_BUZZER);
 }
 
 void setupWiFiAndMQTT() {
@@ -190,20 +167,10 @@ void handleNetworkReconnection() {
     }
 
     if (!mqttClient.connected()) {
-        Serial.print("[MQTT] Intentando conexion...");
-        if (mqttClient.connect(DEVICE_ID, MQTT_USER, MQTT_PASS)) {
-            Serial.println(" Conectado.");
+        // Última Voluntad (LWT) en caso de desconexión abrupta
+        if (mqttClient.connect(DEVICE_ID, MQTT_USER, MQTT_PASS, TOPIC_STATUS, 1, true, "{\"device_id\":\"IOT-EF4EEA4151\",\"status\":\"OFFLINE\"}")) {
             mqttClient.subscribe(TOPIC_COMMAND);
-            
-            StaticJsonDocument<128> doc;
-            doc["device_id"] = DEVICE_ID;
-            doc["status"] = "online";
-            char buffer[128];
-            serializeJson(doc, buffer);
-            mqttClient.publish(TOPIC_STATUS, buffer);
-        } else {
-            Serial.print(" Fallo rc=");
-            Serial.println(mqttClient.state());
+            mqttClient.publish(TOPIC_STATUS, "{\"device_id\":\"IOT-EF4EEA4151\",\"status\":\"ONLINE\"}", true);
         }
     }
 }
@@ -226,19 +193,15 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
         currentMode = cmd;
         applyAlarmOutput();
         updateLCD();
-        Serial.print("[CMD RECIBIDO] Nuevo Modo: ");
-        Serial.println(currentMode);
     } else {
-        Serial.print("[CMD RECHAZADO] Comando no reconocido: ");
-        Serial.println(cmd);
-
+        // Desvío de comando desconocido a topic de alertas
         StaticJsonDocument<128> doc;
         doc["device_id"] = DEVICE_ID;
         doc["error"] = "COMANDO_DESCONOCIDO";
         doc["raw_received"] = cmd;
         char buffer[128];
         serializeJson(doc, buffer);
-        mqttClient.publish(TOPIC_STATUS, buffer);
+        mqttClient.publish(TOPIC_ALERT, buffer);
     }
 }
 
@@ -249,7 +212,7 @@ void publishTelemetry() {
     StaticJsonDocument<256> doc;
     doc["device_id"] = DEVICE_ID;
     doc["variable"]  = VARIABLE_NAME;
-    doc["value"]     = currentReading;
+    doc["value"]     = (float)currentReading; // Casting a float exigido
     doc["unit"]      = UNIT_NAME;
     doc["mode"]      = currentMode;
     doc["alarm"]     = alarmState;
@@ -258,8 +221,6 @@ void publishTelemetry() {
     char buffer[256];
     serializeJson(doc, buffer);
     mqttClient.publish(TOPIC_TELEMETRY, buffer);
-    Serial.print("[TELEMETRIA ENVIADA] ");
-    Serial.println(buffer);
 }
 
 void updateLCD() {
@@ -267,22 +228,13 @@ void updateLCD() {
     lcd.print("ADC:");
     lcd.print(currentReading);
     lcd.print("    ");
-    
     lcd.setCursor(10, 0);
     lcd.print(currentMode.substring(0, 6));
 
     lcd.setCursor(0, 1);
-    if (showConfirmationComplete) {
-        lcd.print("CONF: 6/6       ");
-    } else if (alarmState) {
-        lcd.print("ALARM: ACTIVADA ");
-    } else if (consecutiveHighCount > 0 && currentMode == "AUTO") {
-        lcd.print("CONF: ");
-        lcd.print(consecutiveHighCount);
-        lcd.print("/");
-        lcd.print(CONFIRMACIONES_REQ);
-        lcd.print("        ");
-    } else {
-        lcd.print("ALARM: SEGURA   ");
-    }
+    if (showConfirmationComplete) lcd.print("CONF: 6/6       ");
+    else if (alarmState) lcd.print("ALARM: ACTIVADA ");
+    else if (consecutiveHighCount > 0 && currentMode == "AUTO") {
+        lcd.print("CONF: "); lcd.print(consecutiveHighCount); lcd.print("/"); lcd.print(CONFIRMACIONES_REQ); lcd.print("        ");
+    } else lcd.print("ALARM: SEGURA   ");
 }
